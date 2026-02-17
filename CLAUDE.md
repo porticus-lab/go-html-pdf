@@ -8,6 +8,7 @@ Go library (`htmlpdf` package) that converts modern HTML5+CSS3 to PDF using the 
 
 - **Language**: Go 1.24+
 - **Core dependency**: `chromedp` + `cdproto` (MIT, free) — headless Chrome via CDP
+- **Optional dependency**: `go-rod/rod` (MIT, free) — Chromium auto-download via `lib/launcher`
 - **No paid dependencies allowed**: all deps must be free and open source
 
 ## Architecture
@@ -19,6 +20,7 @@ Go library (`htmlpdf` package) that converts modern HTML5+CSS3 to PDF using the 
 | `options.go`      | Functional options: `WithTimeout`, `WithChromePath`, etc.   |
 | `errors.go`       | Sentinel errors (`ErrClosed`)                              |
 | `result.go`       | `Result` type: `Bytes`, `Base64`, `Reader`, `WriteTo`, `WriteToFile` |
+| `browser.go`      | Auto-download logic via `go-rod/rod/lib/launcher`          |
 | `converter.go`    | `Converter` struct + package-level convenience functions    |
 | `page_test.go`    | Unit tests for page config (no Chrome needed)              |
 | `result_test.go`  | Unit tests for Result methods (no Chrome needed)           |
@@ -33,6 +35,7 @@ Go library (`htmlpdf` package) that converts modern HTML5+CSS3 to PDF using the 
 - **Functional options pattern**: `Option` type with `With*` constructors
 - **Nil-safe PageConfig**: `nil` or zero-value `PageConfig` resolves to defaults (A4, portrait, 1cm margins, scale 1.0)
 - **Result type**: Conversion methods return `*Result` with helpers: `Bytes()`, `Base64()`, `Reader()`, `WriteTo()`, `WriteToFile()`, `Len()` — designed for direct cloud storage uploads (GCP, S3)
+- **Auto-download**: `WithAutoDownload()` uses `go-rod/rod/lib/launcher` to download and cache a Chromium binary; ignored when `WithChromePath` is set. Browser path resolution order: explicit path > auto-download > system PATH
 
 ## Commands
 

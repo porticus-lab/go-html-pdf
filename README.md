@@ -7,7 +7,7 @@ All dependencies are free and open source.
 ## Requirements
 
 - **Go 1.24+**
-- **Chrome or Chromium** installed and available in `PATH`
+- **Chrome or Chromium** installed and available in `PATH`, **or** use `WithAutoDownload()` to let the library fetch one automatically
 
 ## Install
 
@@ -121,11 +121,24 @@ Configure the `Converter` with functional options:
 
 ```go
 c, err := htmlpdf.NewConverter(
-	htmlpdf.WithTimeout(60 * time.Second),    // conversion timeout (default: 30s)
+	htmlpdf.WithTimeout(60 * time.Second),      // conversion timeout (default: 30s)
 	htmlpdf.WithChromePath("/usr/bin/chromium"), // custom Chrome path
 	htmlpdf.WithNoSandbox(),                    // required when running as root / Docker
+	htmlpdf.WithAutoDownload(),                 // auto-download Chromium if not installed
 )
 ```
+
+### Auto-Download
+
+If Chrome is not installed on the host, `WithAutoDownload()` will download and cache a compatible Chromium binary on the first run:
+
+```go
+c, err := htmlpdf.NewConverter(htmlpdf.WithAutoDownload())
+```
+
+The binary is stored in `~/.cache/rod/browser` (Unix) or `%APPDATA%\rod\browser` (Windows) and reused on subsequent calls. The first invocation may take 10–30 s depending on network speed; after that, the check adds ~1 ms.
+
+This option is ignored when `WithChromePath` is also set.
 
 ## One-off Conversions
 
@@ -261,6 +274,7 @@ The library has a small surface area — around 250 lines of core code — built
 ├── options.go        # Functional options (WithTimeout, WithChromePath, ...)
 ├── errors.go         # Sentinel errors
 ├── result.go         # Result type (Bytes, Base64, Reader, WriteTo, WriteToFile)
+├── browser.go        # Auto-download logic via go-rod/rod/lib/launcher
 ├── converter.go      # Converter struct, conversion methods, convenience functions
 ├── page_test.go      # Unit tests for page math (no Chrome needed)
 ├── result_test.go    # Unit tests for Result methods (no Chrome needed)
@@ -274,6 +288,7 @@ The library has a small surface area — around 250 lines of core code — built
 |--------------------------|---------|----------------------------------|
 | `chromedp/chromedp`      | MIT     | Headless Chrome driver           |
 | `chromedp/cdproto`       | MIT     | Chrome DevTools Protocol types   |
+| `go-rod/rod`             | MIT     | Chromium auto-download (launcher)|
 
 No paid services, no SaaS APIs, no CGo.
 
@@ -285,7 +300,16 @@ Chrome needs a few flags when running inside containers:
 c, err := htmlpdf.NewConverter(htmlpdf.WithNoSandbox())
 ```
 
-A minimal Dockerfile:
+You can install Chromium in the image or let the library download it automatically:
+
+```go
+c, err := htmlpdf.NewConverter(
+	htmlpdf.WithAutoDownload(),
+	htmlpdf.WithNoSandbox(),
+)
+```
+
+A minimal Dockerfile (with system Chromium):
 
 ```dockerfile
 FROM golang:1.24-bookworm
