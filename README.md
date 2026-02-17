@@ -309,7 +309,34 @@ c, err := htmlpdf.NewConverter(
 )
 ```
 
-A minimal Dockerfile (with system Chromium):
+### Option A — Auto-download (smallest image, fastest to set up)
+
+No need to install Chromium in the image. The library downloads it on first run and caches it. Only the shared libraries Chrome needs are required:
+
+```dockerfile
+FROM golang:1.24-bookworm
+
+# Runtime deps for headless Chromium (no browser package needed)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 \
+    libxcomposite1 libxdamage1 libxrandr2 libgbm1 libpango-1.0-0 \
+    libcairo2 libasound2 libxshmfence1 fonts-liberation \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY . .
+RUN go build -o server .
+CMD ["./server"]
+```
+
+```go
+c, err := htmlpdf.NewConverter(
+	htmlpdf.WithAutoDownload(),
+	htmlpdf.WithNoSandbox(),
+)
+```
+
+### Option B — System Chromium (larger image, no first-run download)
 
 ```dockerfile
 FROM golang:1.24-bookworm
