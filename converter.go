@@ -94,7 +94,7 @@ func (c *Converter) Close() error {
 
 // ConvertHTML converts an HTML string to a PDF document.
 // If page is nil, [DefaultPageConfig] values are used.
-func (c *Converter) ConvertHTML(ctx context.Context, html string, pg *PageConfig) ([]byte, error) {
+func (c *Converter) ConvertHTML(ctx context.Context, html string, pg *PageConfig) (*Result, error) {
 	if err := c.checkClosed(); err != nil {
 		return nil, err
 	}
@@ -123,7 +123,7 @@ func (c *Converter) ConvertHTML(ctx context.Context, html string, pg *PageConfig
 
 // ConvertURL converts the web page at rawURL to a PDF document.
 // If page is nil, [DefaultPageConfig] values are used.
-func (c *Converter) ConvertURL(ctx context.Context, rawURL string, pg *PageConfig) ([]byte, error) {
+func (c *Converter) ConvertURL(ctx context.Context, rawURL string, pg *PageConfig) (*Result, error) {
 	if err := c.checkClosed(); err != nil {
 		return nil, err
 	}
@@ -135,7 +135,7 @@ func (c *Converter) ConvertURL(ctx context.Context, rawURL string, pg *PageConfi
 
 // ConvertFile converts a local HTML file to a PDF document.
 // If page is nil, [DefaultPageConfig] values are used.
-func (c *Converter) ConvertFile(ctx context.Context, path string, pg *PageConfig) ([]byte, error) {
+func (c *Converter) ConvertFile(ctx context.Context, path string, pg *PageConfig) (*Result, error) {
 	if err := c.checkClosed(); err != nil {
 		return nil, err
 	}
@@ -151,7 +151,7 @@ func (c *Converter) ConvertFile(ctx context.Context, path string, pg *PageConfig
 }
 
 // convert performs the actual navigation and PDF generation.
-func (c *Converter) convert(ctx context.Context, targetURL string, pg *PageConfig) ([]byte, error) {
+func (c *Converter) convert(ctx context.Context, targetURL string, pg *PageConfig) (*Result, error) {
 	resolved := pg.resolved()
 
 	if c.cfg.timeout > 0 {
@@ -199,7 +199,7 @@ func (c *Converter) convert(ctx context.Context, targetURL string, pg *PageConfi
 		return nil, fmt.Errorf("htmlpdf: conversion failed: %w", err)
 	}
 
-	return buf, nil
+	return &Result{data: buf}, nil
 }
 
 func (c *Converter) checkClosed() error {
@@ -216,7 +216,7 @@ func (c *Converter) checkClosed() error {
 // ConvertHTML converts an HTML string to PDF using a temporary [Converter].
 // This is convenient for one-off conversions. For repeated use, create a
 // [Converter] with [NewConverter] to reuse the browser instance.
-func ConvertHTML(ctx context.Context, html string, pg *PageConfig, opts ...Option) ([]byte, error) {
+func ConvertHTML(ctx context.Context, html string, pg *PageConfig, opts ...Option) (*Result, error) {
 	conv, err := NewConverter(opts...)
 	if err != nil {
 		return nil, err
@@ -226,7 +226,7 @@ func ConvertHTML(ctx context.Context, html string, pg *PageConfig, opts ...Optio
 }
 
 // ConvertURL converts a web page to PDF using a temporary [Converter].
-func ConvertURL(ctx context.Context, rawURL string, pg *PageConfig, opts ...Option) ([]byte, error) {
+func ConvertURL(ctx context.Context, rawURL string, pg *PageConfig, opts ...Option) (*Result, error) {
 	conv, err := NewConverter(opts...)
 	if err != nil {
 		return nil, err
@@ -236,7 +236,7 @@ func ConvertURL(ctx context.Context, rawURL string, pg *PageConfig, opts ...Opti
 }
 
 // ConvertFile converts a local HTML file to PDF using a temporary [Converter].
-func ConvertFile(ctx context.Context, path string, pg *PageConfig, opts ...Option) ([]byte, error) {
+func ConvertFile(ctx context.Context, path string, pg *PageConfig, opts ...Option) (*Result, error) {
 	conv, err := NewConverter(opts...)
 	if err != nil {
 		return nil, err

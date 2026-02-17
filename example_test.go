@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"os"
 	"time"
 
 	htmlpdf "github.com/porticus-lab/go-html-pdf"
@@ -19,12 +18,12 @@ func Example() {
 	defer c.Close()
 
 	// Convert HTML to PDF with default page settings (A4, portrait).
-	pdf, err := c.ConvertHTML(context.Background(), "<h1>Hello World</h1>", nil)
+	res, err := c.ConvertHTML(context.Background(), "<h1>Hello World</h1>", nil)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	fmt.Printf("Generated PDF: %d bytes\n", len(pdf))
+	fmt.Printf("Generated PDF: %d bytes\n", res.Len())
 }
 
 func Example_withPageConfig() {
@@ -51,12 +50,12 @@ func Example_withPageConfig() {
   <p>This PDF uses Letter size in landscape orientation.</p>
 </body></html>`
 
-	pdf, err := c.ConvertHTML(context.Background(), html, page)
+	res, err := c.ConvertHTML(context.Background(), html, page)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	if err := os.WriteFile("/tmp/report.pdf", pdf, 0o644); err != nil {
+	if err := res.WriteToFile("/tmp/report.pdf", 0o644); err != nil {
 		log.Fatal(err)
 	}
 	fmt.Println("PDF saved to /tmp/report.pdf")
@@ -96,12 +95,42 @@ func Example_modernCSS() {
 </body>
 </html>`
 
-	pdf, err := c.ConvertHTML(context.Background(), html, &htmlpdf.PageConfig{
+	res, err := c.ConvertHTML(context.Background(), html, &htmlpdf.PageConfig{
 		PrintBackground: true,
 	})
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	fmt.Printf("Modern CSS PDF: %d bytes\n", len(pdf))
+	fmt.Printf("Modern CSS PDF: %d bytes\n", res.Len())
+}
+
+func Example_resultOutputFormats() {
+	c, err := htmlpdf.NewConverter(htmlpdf.WithNoSandbox())
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer c.Close()
+
+	res, err := c.ConvertHTML(context.Background(), "<h1>Output formats</h1>", nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Raw bytes — for any io.Writer or low-level use.
+	_ = res.Bytes()
+
+	// Base64 string — for JSON APIs or services that accept base64.
+	_ = res.Base64()
+
+	// io.Reader — for streaming uploads (GCP Cloud Storage, AWS S3, etc.).
+	_ = res.Reader()
+
+	// Write directly to a file.
+	_ = res.WriteToFile("/tmp/output.pdf", 0o644)
+
+	// io.WriterTo — write to any io.Writer.
+	// res.WriteTo(w)
+
+	fmt.Printf("PDF ready: %d bytes\n", res.Len())
 }

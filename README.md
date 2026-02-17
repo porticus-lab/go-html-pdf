@@ -48,12 +48,12 @@ func main() {
 </body>
 </html>`
 
-	pdf, err := c.ConvertHTML(context.Background(), html, nil)
+	res, err := c.ConvertHTML(context.Background(), html, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	os.WriteFile("hello.pdf", pdf, 0o644)
+	res.WriteToFile("hello.pdf", 0o644)
 }
 ```
 
@@ -72,7 +72,7 @@ page := &htmlpdf.PageConfig{
 	PrintBackground: true,
 }
 
-pdf, err := c.ConvertHTML(ctx, html, page)
+res, err := c.ConvertHTML(ctx, html, page)
 ```
 
 ### Available Page Sizes
@@ -106,13 +106,13 @@ The library can convert from three input types:
 
 ```go
 // From an HTML string
-pdf, err := c.ConvertHTML(ctx, "<h1>Hello</h1>", page)
+res, err := c.ConvertHTML(ctx, "<h1>Hello</h1>", page)
 
 // From a local file
-pdf, err := c.ConvertFile(ctx, "report.html", page)
+res, err := c.ConvertFile(ctx, "report.html", page)
 
 // From a URL
-pdf, err := c.ConvertURL(ctx, "https://example.com", page)
+res, err := c.ConvertURL(ctx, "https://example.com", page)
 ```
 
 ## Converter Options
@@ -132,7 +132,7 @@ c, err := htmlpdf.NewConverter(
 For single conversions where you don't need to reuse the browser, use the package-level functions:
 
 ```go
-pdf, err := htmlpdf.ConvertHTML(ctx, html, page, htmlpdf.WithNoSandbox())
+res, err := htmlpdf.ConvertHTML(ctx, html, page, htmlpdf.WithNoSandbox())
 ```
 
 These create a temporary `Converter` under the hood. If you're converting more than once, prefer creating a `Converter` directly — it reuses the browser process and is significantly faster.
@@ -153,6 +153,98 @@ page := &htmlpdf.PageConfig{
 
 Available template classes: `date`, `title`, `url`, `pageNumber`, `totalPages`.
 
+## Result Object
+
+Every conversion method returns a `*Result` with helpers for different output formats:
+
+```go
+res, err := c.ConvertHTML(ctx, html, nil)
+
+res.Bytes()                          // []byte — raw PDF content
+res.Base64()                         // string — base64-encoded (RFC 4648)
+res.Reader()                         // *bytes.Reader — implements io.Reader + io.Seeker
+res.WriteTo(w)                       // writes to any io.Writer (implements io.WriterTo)
+res.WriteToFile("out.pdf", 0o644)    // writes directly to disk
+res.Len()                            // int — size in bytes
+```
+
+## Cloud Storage Upload
+
+The `Result` methods make it straightforward to upload PDFs directly to cloud storage without intermediate files.
+
+### GCP Cloud Storage
+
+```go
+import (
+	"cloud.google.com/go/storage"
+	htmlpdf "github.com/porticus-lab/go-html-pdf"
+)
+
+func uploadToGCS(ctx context.Context, c *htmlpdf.Converter, bucket, object string) error {
+	res, err := c.ConvertHTML(ctx, "<h1>Invoice #1234</h1>", nil)
+	if err != nil {
+		return err
+	}
+
+	client, err := storage.NewClient(ctx)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+
+	w := client.Bucket(bucket).Object(object).NewWriter(ctx)
+	w.ContentType = "application/pdf"
+
+	if _, err := res.WriteTo(w); err != nil {
+		w.Close()
+		return err
+	}
+	return w.Close()
+}
+```
+
+### AWS S3
+
+```go
+import (
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	htmlpdf "github.com/porticus-lab/go-html-pdf"
+)
+
+func uploadToS3(ctx context.Context, c *htmlpdf.Converter, client *s3.Client, bucket, key string) error {
+	res, err := c.ConvertHTML(ctx, "<h1>Report</h1>", nil)
+	if err != nil {
+		return err
+	}
+
+	contentType := "application/pdf"
+	_, err = client.PutObject(ctx, &s3.PutObjectInput{
+		Bucket:      &bucket,
+		Key:         &key,
+		Body:        res.Reader(),
+		ContentType: &contentType,
+	})
+	return err
+}
+```
+
+### Base64 in JSON APIs
+
+```go
+func handleGeneratePDF(w http.ResponseWriter, r *http.Request) {
+	res, err := converter.ConvertHTML(r.Context(), htmlContent, nil)
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]string{
+		"pdf":      res.Base64(),
+		"filename": "report.pdf",
+	})
+}
+```
+
 ## How It Works
 
 The library has a small surface area — around 250 lines of core code — built on two ideas:
@@ -164,14 +256,16 @@ The library has a small surface area — around 250 lines of core code — built
 ### File Layout
 
 ```
-├── doc.go           # Package documentation
-├── page.go          # PageSize, Orientation, Margin, PageConfig types
-├── options.go       # Functional options (WithTimeout, WithChromePath, ...)
-├── errors.go        # Sentinel errors
-├── converter.go     # Converter struct, conversion methods, convenience functions
-├── page_test.go     # Unit tests for page math (no Chrome needed)
+├── doc.go            # Package documentation
+├── page.go           # PageSize, Orientation, Margin, PageConfig types
+├── options.go        # Functional options (WithTimeout, WithChromePath, ...)
+├── errors.go         # Sentinel errors
+├── result.go         # Result type (Bytes, Base64, Reader, WriteTo, WriteToFile)
+├── converter.go      # Converter struct, conversion methods, convenience functions
+├── page_test.go      # Unit tests for page math (no Chrome needed)
+├── result_test.go    # Unit tests for Result methods (no Chrome needed)
 ├── converter_test.go # Integration tests (skipped if Chrome is not installed)
-└── example_test.go  # Testable examples for go doc
+└── example_test.go   # Testable examples for go doc
 ```
 
 ### Dependencies

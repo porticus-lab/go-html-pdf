@@ -49,15 +49,15 @@ func isPDF(data []byte) bool {
 func TestConvertHTML_Basic(t *testing.T) {
 	c := newTestConverter(t)
 
-	pdf, err := c.ConvertHTML(context.Background(), "<h1>Hello World</h1>", nil)
+	res, err := c.ConvertHTML(context.Background(), "<h1>Hello World</h1>", nil)
 	if err != nil {
 		t.Fatalf("ConvertHTML: %v", err)
 	}
-	if !isPDF(pdf) {
+	if !isPDF(res.Bytes()) {
 		t.Fatal("output is not a valid PDF")
 	}
-	if len(pdf) < 100 {
-		t.Errorf("PDF unexpectedly small: %d bytes", len(pdf))
+	if res.Len() < 100 {
+		t.Errorf("PDF unexpectedly small: %d bytes", res.Len())
 	}
 }
 
@@ -88,11 +88,11 @@ func TestConvertHTML_WithPageConfig(t *testing.T) {
 </body>
 </html>`
 
-	pdf, err := c.ConvertHTML(context.Background(), html, page)
+	res, err := c.ConvertHTML(context.Background(), html, page)
 	if err != nil {
 		t.Fatalf("ConvertHTML: %v", err)
 	}
-	if !isPDF(pdf) {
+	if !isPDF(res.Bytes()) {
 		t.Fatal("output is not a valid PDF")
 	}
 }
@@ -147,11 +147,11 @@ func TestConvertHTML_ModernCSS(t *testing.T) {
 </body>
 </html>`
 
-	pdf, err := c.ConvertHTML(context.Background(), html, nil)
+	res, err := c.ConvertHTML(context.Background(), html, nil)
 	if err != nil {
 		t.Fatalf("ConvertHTML: %v", err)
 	}
-	if !isPDF(pdf) {
+	if !isPDF(res.Bytes()) {
 		t.Fatal("output is not a valid PDF")
 	}
 }
@@ -165,11 +165,11 @@ func TestConvertFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	pdf, err := c.ConvertFile(context.Background(), path, nil)
+	res, err := c.ConvertFile(context.Background(), path, nil)
 	if err != nil {
 		t.Fatalf("ConvertFile: %v", err)
 	}
-	if !isPDF(pdf) {
+	if !isPDF(res.Bytes()) {
 		t.Fatal("output is not a valid PDF")
 	}
 }
@@ -226,7 +226,7 @@ func TestConverter_UsedAfterClose(t *testing.T) {
 func TestConvertHTML_PackageLevel(t *testing.T) {
 	skipIfNoChrome(t)
 
-	pdf, err := htmlpdf.ConvertHTML(
+	res, err := htmlpdf.ConvertHTML(
 		context.Background(),
 		"<p>Package-level function</p>",
 		nil,
@@ -235,7 +235,7 @@ func TestConvertHTML_PackageLevel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ConvertHTML: %v", err)
 	}
-	if !isPDF(pdf) {
+	if !isPDF(res.Bytes()) {
 		t.Fatal("output is not a valid PDF")
 	}
 }
@@ -257,7 +257,7 @@ func TestAllPageSizes(t *testing.T) {
 
 	for _, s := range sizes {
 		t.Run(s.name, func(t *testing.T) {
-			pdf, err := c.ConvertHTML(context.Background(), "<p>"+s.name+"</p>", &htmlpdf.PageConfig{
+			res, err := c.ConvertHTML(context.Background(), "<p>"+s.name+"</p>", &htmlpdf.PageConfig{
 				Size:            s.size,
 				Scale:           1.0,
 				PrintBackground: true,
@@ -265,9 +265,64 @@ func TestAllPageSizes(t *testing.T) {
 			if err != nil {
 				t.Fatalf("ConvertHTML(%s): %v", s.name, err)
 			}
-			if !isPDF(pdf) {
+			if !isPDF(res.Bytes()) {
 				t.Fatalf("%s: output is not a valid PDF", s.name)
 			}
 		})
+	}
+}
+
+func TestResult_Base64(t *testing.T) {
+	c := newTestConverter(t)
+
+	res, err := c.ConvertHTML(context.Background(), "<p>base64 test</p>", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b64 := res.Base64()
+	if len(b64) == 0 {
+		t.Fatal("Base64 returned empty string")
+	}
+	// base64 of %PDF- starts with JVBER
+	if b64[:5] != "JVBER" {
+		t.Errorf("Base64 does not start with expected PDF prefix, got %s...", b64[:10])
+	}
+}
+
+func TestResult_Reader(t *testing.T) {
+	c := newTestConverter(t)
+
+	res, err := c.ConvertHTML(context.Background(), "<p>reader test</p>", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := res.Reader()
+	if r.Len() != res.Len() {
+		t.Errorf("Reader().Len() = %d, want %d", r.Len(), res.Len())
+	}
+}
+
+func TestResult_WriteToFile(t *testing.T) {
+	c := newTestConverter(t)
+
+	res, err := c.ConvertHTML(context.Background(), "<p>file test</p>", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	path := filepath.Join(t.TempDir(), "out.pdf")
+	if err := res.WriteToFile(path, 0o644); err != nil {
+		t.Fatalf("WriteToFile: %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !isPDF(data) {
+		t.Fatal("written file is not a valid PDF")
+	}
+	if len(data) != res.Len() {
+		t.Errorf("written %d bytes, expected %d", len(data), res.Len())
 	}
 }
