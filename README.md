@@ -314,19 +314,24 @@ c, err := htmlpdf.NewConverter(
 No need to install Chromium in the image. The library downloads it on first run and caches it. Only the shared libraries Chrome needs are required:
 
 ```dockerfile
-FROM golang:1.24-bookworm
-
-# Runtime deps for headless Chromium (no browser package needed)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 \
-    libxcomposite1 libxdamage1 libxrandr2 libgbm1 libpango-1.0-0 \
-    libcairo2 libasound2 libxshmfence1 fonts-liberation \
-    && rm -rf /var/lib/apt/lists/*
+FROM golang:1.24-alpine AS builder
 
 WORKDIR /app
-COPY . .
-RUN go build -o server .
-CMD ["./server"]
+COPY go.* ./
+RUN go mod download
+COPY . ./
+RUN go build -v -o server
+
+FROM alpine:latest
+
+# Runtime deps for headless Chromium (no browser package needed)
+RUN apk add --no-cache \
+    nss atk at-spi2-core cups-libs libdrm \
+    libxcomposite libxdamage libxrandr mesa-gbm pango \
+    cairo alsa-lib libxshmfence font-noto
+
+COPY --from=builder /app/server /app/server
+CMD ["/app/server"]
 ```
 
 ```go
@@ -339,14 +344,20 @@ c, err := htmlpdf.NewConverter(
 ### Option B — System Chromium (larger image, no first-run download)
 
 ```dockerfile
-FROM golang:1.24-bookworm
-
-RUN apt-get update && apt-get install -y chromium && rm -rf /var/lib/apt/lists/*
+FROM golang:1.24-alpine AS builder
 
 WORKDIR /app
-COPY . .
-RUN go build -o server .
-CMD ["./server"]
+COPY go.* ./
+RUN go mod download
+COPY . ./
+RUN go build -v -o server
+
+FROM alpine:latest
+
+RUN apk add --no-cache chromium
+
+COPY --from=builder /app/server /app/server
+CMD ["/app/server"]
 ```
 
 ## License
