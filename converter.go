@@ -40,6 +40,15 @@ func NewConverter(opts ...Option) (*Converter, error) {
 		o(&cfg)
 	}
 
+	// Resolve browser path: explicit > auto-download > system PATH.
+	if cfg.chromePath == "" && cfg.autoDownload {
+		path, err := resolveBrowser()
+		if err != nil {
+			return nil, err
+		}
+		cfg.chromePath = path
+	}
+
 	allocOpts := append(
 		chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.Flag("disable-gpu", true),

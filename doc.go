@@ -34,7 +34,13 @@
 //
 // # Requirements
 //
-// A Chrome or Chromium browser must be installed and accessible in the
-// system PATH. The library uses headless mode and does not open any
-// visible browser windows.
+// A Chrome or Chromium browser must be available. By default the library
+// searches standard system locations. Alternatively, pass
+// [WithAutoDownload] to automatically download and cache a compatible
+// Chromium binary:
+//
+//	c, err := htmlpdf.NewConverter(htmlpdf.WithAutoDownload())
+//
+// The library uses headless mode and does not open any visible browser
+// windows.
 package htmlpdf

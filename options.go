@@ -4,10 +4,11 @@ import "time"
 
 // converterConfig holds internal configuration for a Converter.
 type converterConfig struct {
-	chromePath string
-	timeout    time.Duration
-	noSandbox  bool
-	headless   string
+	chromePath   string
+	timeout      time.Duration
+	noSandbox    bool
+	headless     string
+	autoDownload bool
 }
 
 func defaultConfig() converterConfig {
@@ -41,5 +42,19 @@ func WithTimeout(d time.Duration) Option {
 func WithNoSandbox() Option {
 	return func(c *converterConfig) {
 		c.noSandbox = true
+	}
+}
+
+// WithAutoDownload enables automatic download of a compatible Chromium
+// binary when no browser is found in the system PATH. The binary is
+// cached in ~/.cache/rod/browser (Unix) or %APPDATA%\rod\browser (Windows)
+// and reused on subsequent calls. The first invocation may take 10–30 s
+// depending on network speed; subsequent calls add only ~1 ms to check the
+// cache.
+//
+// This option is ignored when [WithChromePath] is also set.
+func WithAutoDownload() Option {
+	return func(c *converterConfig) {
+		c.autoDownload = true
 	}
 }
