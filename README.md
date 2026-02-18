@@ -175,6 +175,14 @@ json.NewEncoder(w).Encode(map[string]string{"pdf": res.Base64()})
 
 ### Running in Docker
 
+Chrome requires `--no-sandbox` inside containers. Always pair `WithNoSandbox()` with any Docker deployment:
+
+```go
+c, err := htmlpdf.NewConverter(htmlpdf.WithNoSandbox())
+```
+
+You can install Chromium in the image or let the library download it automatically:
+
 ```go
 c, err := htmlpdf.NewConverter(
     htmlpdf.WithAutoDownload(),
@@ -182,10 +190,13 @@ c, err := htmlpdf.NewConverter(
 )
 ```
 
-#### Dockerfile — auto-download (smallest image)
+#### Option A — Auto-download (smallest image, fastest to set up)
+
+No need to install Chromium in the image. The library downloads it on first run and caches it in `~/.cache/rod/browser`. Only the shared libraries Chrome needs at runtime are required:
 
 ```dockerfile
 FROM golang:1.24-alpine AS builder
+
 WORKDIR /app
 COPY go.* ./
 RUN go mod download
@@ -193,26 +204,48 @@ COPY . ./
 RUN go build -o server
 
 FROM alpine:latest
+
+# Runtime shared libraries for headless Chromium (no browser package needed)
 RUN apk add --no-cache \
     nss atk at-spi2-core cups-libs libdrm \
     libxcomposite libxdamage libxrandr mesa-gbm pango \
     cairo alsa-lib libxshmfence font-noto
+
 COPY --from=builder /app/server /app/server
 CMD ["/app/server"]
 ```
 
-#### Dockerfile — system Chromium
+```go
+c, err := htmlpdf.NewConverter(
+    htmlpdf.WithAutoDownload(),
+    htmlpdf.WithNoSandbox(),
+)
+```
+
+#### Option B — System Chromium (larger image, no first-run download)
 
 ```dockerfile
 FROM golang:1.24-alpine AS builder
+
 WORKDIR /app
-COPY go.* ./; RUN go mod download
-COPY . ./; RUN go build -o server
+COPY go.* ./
+RUN go mod download
+COPY . ./
+RUN go build -o server
 
 FROM alpine:latest
+
 RUN apk add --no-cache chromium
+
 COPY --from=builder /app/server /app/server
 CMD ["/app/server"]
+```
+
+```go
+c, err := htmlpdf.NewConverter(
+    htmlpdf.WithChromePath("/usr/bin/chromium-browser"),
+    htmlpdf.WithNoSandbox(),
+)
 ```
 
 ---
@@ -318,6 +351,48 @@ p.Pos(); p.SetPos(n)
 | `Reference` | `{Number int, Gen int}` |
 | `Dict` | `map[string]*Object` — helpers: `GetInt`, `GetName`, `GetArray`, `GetDict` |
 | `PageInfo` | `{Width, Height float64; Rotation int}` |
+
+---
+
+## Chrome Dependencies
+
+The HTML→PDF side launches a headless Chromium process. Chromium needs several system libraries that are absent in minimal base images. The PDF→text side has **no system dependencies** — it uses only the Go standard library.
+
+### Alpine Linux
+
+```sh
+# Shared libraries only (use with WithAutoDownload)
+apk add --no-cache \
+    nss atk at-spi2-core cups-libs libdrm \
+    libxcomposite libxdamage libxrandr mesa-gbm pango \
+    cairo alsa-lib libxshmfence font-noto
+
+# Or install the full browser package (pulls all deps automatically)
+apk add --no-cache chromium
+```
+
+### Debian / Ubuntu
+
+```sh
+# Shared libraries only (use with WithAutoDownload)
+apt-get install -y --no-install-recommends \
+    libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 \
+    libxcomposite1 libxdamage1 libxrandr2 libgbm1 libpango-1.0-0 \
+    libcairo2 libasound2 libxshmfence1 fonts-noto
+
+# Or install the full browser package
+apt-get install -y --no-install-recommends chromium
+```
+
+### macOS
+
+No extra steps. Chrome/Chromium from the standard `.app` install is found automatically, or use `WithAutoDownload()`.
+
+### Windows
+
+No extra steps. Chrome is found via standard registry paths, or use `WithAutoDownload()`.
+
+> **Tip:** `WithAutoDownload()` is the easiest cross-platform option — it downloads a pinned Chromium build the first time and reuses it on every subsequent run (~1 ms overhead).
 
 ---
 
