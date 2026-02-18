@@ -1,4 +1,4 @@
-package pdf
+package htmlpdf
 
 import (
 	"math"
@@ -82,22 +82,23 @@ type textSpan struct {
 
 // textState holds the current PDF text state during content stream parsing.
 type textState struct {
-	fontName   string
-	fontSize   float64
+	fontName    string
+	fontSize    float64
 	charSpacing float64
 	wordSpacing float64
 	// Text matrix components (simplified: we only track tx, ty)
-	tx, ty       float64
+	tx, ty float64
 	// Line matrix
-	lx, ly       float64
-	leading      float64
+	lx, ly  float64
+	leading float64
 	// Current transformation matrix (simplified)
 	ctmA, ctmB, ctmC, ctmD, ctmE, ctmF float64
 }
 
 func newTextState() textState {
 	return textState{
-		ctmA: 1, ctmD: 1,
+		ctmA:     1,
+		ctmD:     1,
 		fontSize: 12,
 	}
 }
@@ -434,9 +435,7 @@ func spansToText(spans []textSpan) string {
 					sb.WriteByte(' ')
 				}
 			}
-			// Clean up the text
-			text := cleanText(sp.text)
-			sb.WriteString(text)
+			sb.WriteString(cleanText(sp.text))
 		}
 	}
 

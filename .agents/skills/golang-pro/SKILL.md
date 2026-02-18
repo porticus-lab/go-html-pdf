@@ -4,9 +4,9 @@ description: Use when building Go applications requiring concurrent programming,
 license: MIT
 metadata:
   author: https://github.com/Jeffallan
-  version: "1.1.0"
+  version: "1.3.0"
   domain: language
-  triggers: Go, Golang, goroutines, channels, gRPC, microservices Go, Go generics, concurrent programming, Go interfaces, PDF, PDF extraction, PDF parsing
+  triggers: Go, Golang, goroutines, channels, gRPC, microservices Go, Go generics, concurrent programming, Go interfaces, PDF, PDF extraction, PDF parsing, HTML to PDF, CSS to PDF, headless Chrome, chromedp, CDP
   role: specialist
   scope: implementation
   output-format: code
@@ -23,11 +23,75 @@ You are a senior Go engineer with 8+ years of systems programming experience. Yo
 
 ## Project Context
 
-This module (`github.com/porticus-lab/go-html-pdf`) is a **pure-Go PDF text extraction library** — a Go port of [zpdf](https://github.com/Lulzx/zpdf). It is used as a **library**, not a CLI tool.
+This module (`github.com/porticus-lab/go-html-pdf`) is a **single Go library** — `package htmlpdf` — that bundles two complementary PDF capabilities under one import:
 
-### Package: `github.com/porticus-lab/go-html-pdf/pdf`
+```go
+import htmlpdf "github.com/porticus-lab/go-html-pdf"
+```
 
-Location: `pdf/`
+---
+
+### Capability 1: HTML + CSS → PDF
+
+Converts modern HTML5 + CSS3 to PDF via the Chrome DevTools Protocol (headless Chrome).
+
+#### File map
+
+| File | Responsibility |
+|------|---------------|
+| `doc.go` | Package documentation |
+| `page.go` | `PageSize`, `Orientation`, `Margin`, `PageConfig`, `DefaultPageConfig` |
+| `options.go` | Functional options: `WithTimeout`, `WithChromePath`, `WithNoSandbox`, `WithAutoDownload` |
+| `errors.go` | Sentinel errors (`ErrClosed`) |
+| `result.go` | `Result`: `Bytes`, `Base64`, `Reader`, `WriteTo`, `WriteToFile`, `Len` |
+| `browser.go` | Chromium auto-download via `go-rod/rod/lib/launcher` |
+| `converter.go` | `Converter` struct + package-level convenience functions |
+
+#### Key public API
+
+```go
+// Converter (reusable browser)
+c, err := htmlpdf.NewConverter(opts ...Option)
+c.ConvertHTML(ctx, html string, pg *PageConfig) (*Result, error)
+c.ConvertURL(ctx, rawURL string, pg *PageConfig)  (*Result, error)
+c.ConvertFile(ctx, path string, pg *PageConfig)   (*Result, error)
+c.Close() error
+
+// One-off (temporary converter)
+htmlpdf.ConvertHTML(ctx, html, pg, opts...)
+htmlpdf.ConvertURL(ctx, url, pg, opts...)
+htmlpdf.ConvertFile(ctx, path, pg, opts...)
+
+// Page config
+htmlpdf.DefaultPageConfig()   // A4, portrait, 1 cm, scale 1.0, backgrounds on
+htmlpdf.UniformMargin(cm)     // Margin with same value on all sides
+htmlpdf.A3, A4, A5, Letter, Legal, Tabloid  // PageSize vars
+
+// Result
+res.Bytes()           // []byte
+res.Base64()          // string (RFC 4648)
+res.Reader()          // *bytes.Reader
+res.WriteTo(w)        // io.WriterTo
+res.WriteToFile(path, perm)
+res.Len()             // int
+```
+
+#### Key design decisions
+
+- **Units**: public API in centimetres; internally converted to inches for Chrome's `printToPDF`
+- **Browser reuse**: `Converter` keeps one Chrome process alive; each call opens/closes a tab
+- **Thread-safety**: `sync.Mutex` guards `closed` state; safe for concurrent use
+- **Functional options**: `Option func(*converterConfig)` pattern with `With*` constructors
+- **Nil-safe PageConfig**: `nil` or zero-value fields resolve to defaults
+- **Error prefix**: all errors wrapped as `fmt.Errorf("htmlpdf: ...: %w", err)`
+
+---
+
+### Capability 2: PDF → Text
+
+Pure-Go PDF text extraction. Go port of [zpdf](https://github.com/Lulzx/zpdf) — stdlib only.
+
+#### File map
 
 | File | Responsibility |
 |------|---------------|
@@ -36,30 +100,40 @@ Location: `pdf/`
 | `decompress.go` | Stream decompression: FlateDecode, ASCII85, LZW, RunLength |
 | `encoding.go` | Font encoding: WinAnsi, MacRoman, ToUnicode CMap, Adobe Glyph List |
 | `extractor.go` | Content-stream text extraction, positional line assembly |
-| `extractor_test.go` | Table-driven tests for all components |
 
-### Public API
+#### Key public API
 
 ```go
 // Open / load
-doc, err := pdf.Open("file.pdf")
-doc, err := pdf.Load(data []byte)
+doc, err := htmlpdf.Open("file.pdf")
+doc, err  = htmlpdf.Load(data []byte)
 
-// Page iteration
-pages, err := doc.Pages()                    // []Dict
-info    := doc.GetPageInfo(page)             // PageInfo{Width, Height, Rotation}
-version := doc.Version()                     // e.g. "1.7"
+// Document
+doc.Version()                        // e.g. "1.7"
+doc.Pages()                          // ([]Dict, error)
+doc.GetPageInfo(page)                // PageInfo{Width, Height, Rotation}
+doc.ContentStreams(page)             // decompressed content stream bytes
+doc.PageFonts(page)                  // map[name]*Object
+doc.Catalog()                        // document catalog Dict
+doc.ResolveRef(ref Reference)        // *Object
+doc.Resolve(obj *Object)             // *Object (no-op if not a ref)
 
 // Text extraction
-ext  := pdf.NewExtractor(doc)
-text, err := ext.ExtractPage(0)             // single page, 0-indexed
-texts, err := ext.ExtractAll()              // all pages → []string
-text, err := ext.ExtractPageDict(pageDict)  // from a Dict directly
+ext := htmlpdf.NewExtractor(doc)
+ext.ExtractPage(index int)           // single page, 0-indexed
+ext.ExtractAll()                     // all pages → []string
+ext.ExtractPageDict(page Dict)       // from Dict directly
 
 // Low-level
-raw, err  := doc.ContentStreams(page)       // decompressed content stream bytes
-fonts, err := doc.PageFonts(page)          // map[name]*Object
+htmlpdf.DecompressStream(dict, data) // apply filter chain
+htmlpdf.NewFontEncoding(fontObj)     // build encoding table
+enc.Decode(data []byte)              // glyph codes → UTF-8
+
+htmlpdf.NewParser(data, pos)         // recursive-descent parser
+parser.ParseObject()                 // *Object
 ```
+
+---
 
 ## When to Use This Skill
 
@@ -68,7 +142,7 @@ fonts, err := doc.PageFonts(page)          // map[name]*Object
 - Optimizing Go code for performance and memory efficiency
 - Designing interfaces and using Go generics
 - Setting up testing with table-driven tests and benchmarks
-- **Extending or consuming the `go-html-pdf/pdf` library**
+- **Extending or consuming either PDF capability in this module**
 
 ## Core Workflow
 
@@ -79,8 +153,6 @@ fonts, err := doc.PageFonts(page)          // map[name]*Object
 5. **Test** — Table-driven tests, race detector, fuzzing, 80%+ coverage
 
 ## Reference Guide
-
-Load detailed guidance based on context:
 
 | Topic | Reference | Load When |
 |-------|-----------|-----------|
@@ -101,7 +173,7 @@ Load detailed guidance based on context:
 - Use `X | Y` union constraints for generics (Go 1.18+)
 - Propagate errors with fmt.Errorf("%w", err)
 - Run race detector on tests (-race flag)
-- Keep the library free of external dependencies (standard library only)
+- Keep the PDF extraction files (parser/document/decompress/encoding/extractor) free of external dependencies
 
 ### MUST NOT DO
 - Ignore errors (avoid _ assignment without justification)
@@ -111,7 +183,8 @@ Load detailed guidance based on context:
 - Use reflection without performance justification
 - Mix sync and async patterns carelessly
 - Hardcode configuration (use functional options or env vars)
-- Add a CLI layer — this is a library; consumers build their own tooling
+- Add a CLI layer — this is a library only
+- Add non-free/paid dependencies
 
 ## Output Templates
 
@@ -123,4 +196,4 @@ When implementing Go features, provide:
 
 ## Knowledge Reference
 
-Go 1.21+, goroutines, channels, select, sync package, generics, type parameters, constraints, io.Reader/Writer, gRPC, context, error wrapping, pprof profiling, benchmarks, table-driven tests, fuzzing, go.mod, functional options, PDF object model, XRef tables, zlib/FlateDecode, font encoding
+Go 1.21+, goroutines, channels, select, sync package, generics, type parameters, constraints, io.Reader/Writer, context, error wrapping, pprof profiling, benchmarks, table-driven tests, go.mod, functional options, Chrome DevTools Protocol, chromedp, headless Chrome, PDF object model, XRef tables, zlib/FlateDecode, font encoding, content streams

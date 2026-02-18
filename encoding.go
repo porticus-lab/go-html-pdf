@@ -1,4 +1,4 @@
-package pdf
+package htmlpdf
 
 import (
 	"bytes"
@@ -179,7 +179,6 @@ func (e *FontEncoding) parseBFRangeEntry(line string) {
 	dst := tokens[2]
 	if strings.HasPrefix(dst, "[") {
 		// Array form: each element maps to successive codes
-		// Collect array elements
 		var arrTokens []string
 		joined := strings.Join(tokens[2:], " ")
 		joined = strings.TrimPrefix(joined, "[")

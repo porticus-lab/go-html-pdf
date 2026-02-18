@@ -1,7 +1,4 @@
-// Package pdf implements PDF text extraction, mirroring zpdf (https://github.com/Lulzx/zpdf).
-// Supports XRef tables/streams, FlateDecode/ASCII85/LZW/RunLength decompression,
-// WinAnsi/MacRoman/ToUnicode CMap font encoding, and content stream text extraction.
-package pdf
+package htmlpdf
 
 import (
 	"bytes"
@@ -35,7 +32,7 @@ type Object struct {
 	Name   string
 	Array  []*Object
 	Dict   Dict
-	Stream []byte // decompressed stream data
+	Stream []byte // raw stream data
 	Ref    Reference
 }
 
