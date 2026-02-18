@@ -1,25 +1,306 @@
 # go-html-pdf
 
+Go module with two complementary PDF libraries:
+
+| Package | Import path | What it does |
+|---------|-------------|--------------|
+| `htmlpdf` | `github.com/porticus-lab/go-html-pdf` | **HTML + CSS → PDF** via headless Chrome (full CSS3, flexbox, grid, web fonts) |
+| `pdf` | `github.com/porticus-lab/go-html-pdf/pdf` | **PDF → text** extraction, pure Go, no external dependencies |
+
+---
+
+## Part 1 — HTML + CSS to PDF (`htmlpdf`)
+
+Fast, open-source Go library that converts modern HTML + CSS into PDF documents. It renders pages through a headless Chrome browser via the [Chrome DevTools Protocol](https://chromedevtools.github.io/devtools-protocol/), so every CSS feature your browser supports — flexbox, grid, custom properties, gradients, `@media print`, web fonts — works out of the box.
+
+### Requirements
+
+- **Go 1.24+**
+- **Chrome or Chromium** installed and available in `PATH`, **or** use `WithAutoDownload()` to let the library fetch one automatically
+
+### Install
+
+```bash
+go get github.com/porticus-lab/go-html-pdf
+```
+
+### Quick Start
+
+```go
+package main
+
+import (
+    "context"
+    "log"
+
+    htmlpdf "github.com/porticus-lab/go-html-pdf"
+)
+
+func main() {
+    // Create a converter — starts a headless browser once.
+    c, err := htmlpdf.NewConverter()
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer c.Close()
+
+    html := `<!DOCTYPE html>
+<html>
+<head><style>
+  body { font-family: system-ui, sans-serif; padding: 2rem; }
+  h1   { color: #1e40af; }
+</style></head>
+<body>
+  <h1>Hello, PDF!</h1>
+  <p>Generated from Go with modern CSS support.</p>
+</body>
+</html>`
+
+    res, err := c.ConvertHTML(context.Background(), html, nil)
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    res.WriteToFile("hello.pdf", 0o644)
+}
+```
+
+Pass `nil` as the page config and you get sensible defaults: **A4, portrait, 1 cm margins, scale 1.0, backgrounds enabled**.
+
+### Input Sources
+
+```go
+// From an HTML string
+res, err := c.ConvertHTML(ctx, "<h1>Hello</h1>", page)
+
+// From a local file
+res, err := c.ConvertFile(ctx, "report.html", page)
+
+// From a URL
+res, err := c.ConvertURL(ctx, "https://example.com", page)
+```
+
+### Page Configuration
+
+Use `PageConfig` to control the output:
+
+```go
+page := &htmlpdf.PageConfig{
+    Size:            htmlpdf.Letter,
+    Orientation:     htmlpdf.Landscape,
+    Margin:          htmlpdf.Margin{Top: 2, Right: 2.5, Bottom: 2, Left: 2.5},
+    Scale:           0.9,
+    PrintBackground: true,
+}
+
+res, err := c.ConvertHTML(ctx, html, page)
+```
+
+#### Available page sizes
+
+| Name | Dimensions (cm) |
+|------|-----------------|
+| `A3` | 29.7 × 42.0 |
+| `A4` | 21.0 × 29.7 |
+| `A5` | 14.8 × 21.0 |
+| `Letter` | 21.59 × 27.94 |
+| `Legal` | 21.59 × 35.56 |
+| `Tabloid` | 27.94 × 43.18 |
+
+#### PageConfig fields
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `Size` | `PageSize` | `A4` | Paper dimensions |
+| `Orientation` | `Orientation` | `Portrait` | `Portrait` or `Landscape` |
+| `Margin` | `Margin` | 1 cm all | Top, Right, Bottom, Left in centimeters |
+| `Scale` | `float64` | `1.0` | Content scale factor (0.1–2.0) |
+| `PrintBackground` | `bool` | `true` | Include background colors and images |
+| `DisplayHeaderFooter` | `bool` | `false` | Enable header/footer templates |
+| `HeaderTemplate` | `string` | `""` | HTML template for the page header |
+| `FooterTemplate` | `string` | `""` | HTML template for the page footer |
+| `PreferCSSPageSize` | `bool` | `false` | Prefer CSS `@page` size over `Size` |
+
+### Converter Options
+
+```go
+c, err := htmlpdf.NewConverter(
+    htmlpdf.WithTimeout(60 * time.Second),      // conversion timeout (default: 30s)
+    htmlpdf.WithChromePath("/usr/bin/chromium"), // custom Chrome path
+    htmlpdf.WithNoSandbox(),                    // required when running as root / Docker
+    htmlpdf.WithAutoDownload(),                 // auto-download Chromium if not installed
+)
+```
+
+#### Auto-download
+
+If Chrome is not installed, `WithAutoDownload()` downloads and caches a compatible Chromium binary on first run:
+
+```go
+c, err := htmlpdf.NewConverter(htmlpdf.WithAutoDownload())
+```
+
+Binary is stored in `~/.cache/rod/browser` (Unix) or `%APPDATA%\rod\browser` (Windows) and reused on subsequent calls. First run may take 10–30 s; after that the check adds ~1 ms.
+
+### One-off Conversions
+
+For single conversions without reusing the browser:
+
+```go
+res, err := htmlpdf.ConvertHTML(ctx, html, page, htmlpdf.WithNoSandbox())
+res, err := htmlpdf.ConvertURL(ctx, "https://example.com", page)
+res, err := htmlpdf.ConvertFile(ctx, "report.html", page)
+```
+
+For repeated conversions, prefer `NewConverter` — it reuses the browser process and is significantly faster.
+
+### Headers and Footers
+
+```go
+page := &htmlpdf.PageConfig{
+    DisplayHeaderFooter: true,
+    HeaderTemplate: `<div style="font-size:10px; text-align:center; width:100%;">
+        <span class="title"></span>
+    </div>`,
+    FooterTemplate: `<div style="font-size:10px; text-align:center; width:100%;">
+        Page <span class="pageNumber"></span> of <span class="totalPages"></span>
+    </div>`,
+}
+```
+
+Available template classes: `date`, `title`, `url`, `pageNumber`, `totalPages`.
+
+### Result Object
+
+Every conversion returns a `*Result`:
+
+```go
+res.Bytes()                       // []byte — raw PDF content
+res.Base64()                      // string — base64-encoded (RFC 4648)
+res.Reader()                      // *bytes.Reader — io.Reader + io.Seeker
+res.WriteTo(w)                    // writes to any io.Writer
+res.WriteToFile("out.pdf", 0o644) // writes directly to disk
+res.Len()                         // int — size in bytes
+```
+
+### Cloud Storage Upload
+
+```go
+// GCP Cloud Storage
+w := client.Bucket(bucket).Object(object).NewWriter(ctx)
+w.ContentType = "application/pdf"
+res.WriteTo(w)
+w.Close()
+
+// AWS S3
+client.PutObject(ctx, &s3.PutObjectInput{
+    Bucket:      &bucket,
+    Key:         &key,
+    Body:        res.Reader(),
+    ContentType: aws.String("application/pdf"),
+})
+
+// JSON API (base64)
+json.NewEncoder(w).Encode(map[string]string{"pdf": res.Base64()})
+```
+
+### Running in Docker
+
+Chrome needs `--no-sandbox` inside containers:
+
+```go
+c, err := htmlpdf.NewConverter(
+    htmlpdf.WithAutoDownload(),
+    htmlpdf.WithNoSandbox(),
+)
+```
+
+#### Dockerfile — auto-download (smallest image)
+
+```dockerfile
+FROM golang:1.24-alpine AS builder
+WORKDIR /app
+COPY go.* ./
+RUN go mod download
+COPY . ./
+RUN go build -o server
+
+FROM alpine:latest
+RUN apk add --no-cache \
+    nss atk at-spi2-core cups-libs libdrm \
+    libxcomposite libxdamage libxrandr mesa-gbm pango \
+    cairo alsa-lib libxshmfence font-noto
+COPY --from=builder /app/server /app/server
+CMD ["/app/server"]
+```
+
+#### Dockerfile — system Chromium
+
+```dockerfile
+FROM golang:1.24-alpine AS builder
+WORKDIR /app
+COPY go.* ./
+RUN go mod download
+COPY . ./
+RUN go build -o server
+
+FROM alpine:latest
+RUN apk add --no-cache chromium
+COPY --from=builder /app/server /app/server
+CMD ["/app/server"]
+```
+
+### How It Works
+
+1. **Chrome does the rendering.** The library launches a headless Chrome instance via [`chromedp`](https://github.com/chromedp/chromedp) and talks to it over the Chrome DevTools Protocol, giving you exact browser rendering fidelity.
+2. **The browser stays alive.** A `Converter` starts Chrome once and reuses it. Each conversion opens a new tab, navigates, calls Chrome's `Page.printToPDF`, and closes the tab.
+
+#### Dependencies
+
+| Package | License | Purpose |
+|---------|---------|---------|
+| `chromedp/chromedp` | MIT | Headless Chrome driver |
+| `chromedp/cdproto` | MIT | Chrome DevTools Protocol types |
+| `go-rod/rod` | MIT | Chromium auto-download (launcher) |
+
+#### File layout
+
+```
+├── doc.go            # Package documentation
+├── page.go           # PageSize, Orientation, Margin, PageConfig
+├── options.go        # Functional options (WithTimeout, WithChromePath, …)
+├── errors.go         # Sentinel errors (ErrClosed)
+├── result.go         # Result type
+├── browser.go        # Auto-download via go-rod/rod/lib/launcher
+├── converter.go      # Converter + package-level convenience functions
+├── page_test.go      # Unit tests (no Chrome needed)
+├── result_test.go    # Unit tests (no Chrome needed)
+├── converter_test.go # Integration tests (skipped if Chrome not in PATH)
+└── example_test.go   # Testable examples for go doc
+```
+
+---
+
+## Part 2 — PDF to Text (`pdf`)
+
 Pure-Go PDF text extraction library. Go port of [zpdf](https://github.com/Lulzx/zpdf), with no external dependencies.
 
-## Installation
+### Install
 
 ```bash
 go get github.com/porticus-lab/go-html-pdf/pdf
 ```
 
-## Quick start
+### Quick Start
 
 ```go
 import "github.com/porticus-lab/go-html-pdf/pdf"
 
-// Open from disk
 doc, err := pdf.Open("document.pdf")
 if err != nil {
     log.Fatal(err)
 }
 
-// Extract text from every page
 ext := pdf.NewExtractor(doc)
 pages, err := ext.ExtractAll()
 if err != nil {
@@ -30,368 +311,125 @@ for i, text := range pages {
 }
 ```
 
----
-
-## Opening documents
-
-### `pdf.Open`
+### Opening documents
 
 ```go
-func Open(path string) (*Document, error)
-```
-
-Reads a PDF file from disk and returns a parsed `*Document`.
-
-```go
+// From disk
 doc, err := pdf.Open("report.pdf")
-```
 
-### `pdf.Load`
-
-```go
-func Load(data []byte) (*Document, error)
-```
-
-Parses a PDF from a raw byte slice (useful when reading from HTTP responses, embed.FS, etc.).
-
-```go
-data, _ := os.ReadFile("report.pdf")
+// From raw bytes (HTTP response, embed.FS, …)
+data, _ := io.ReadAll(resp.Body)
 doc, err := pdf.Load(data)
-
-// Or from an http.Response body:
-body, _ := io.ReadAll(resp.Body)
-doc, err := pdf.Load(body)
 ```
 
----
-
-## Document
-
-### `doc.Version`
+### Document methods
 
 ```go
-func (doc *Document) Version() string
+doc.Version()                 // string — e.g. "1.7"
+doc.Pages()                   // ([]Dict, error) — all page dicts in order
+doc.GetPageInfo(page)         // PageInfo{Width, Height float64; Rotation int}
+doc.ContentStreams(page)      // ([]byte, error) — decompressed content stream
+doc.PageFonts(page)           // (map[string]*Object, error) — font resources
+doc.Catalog()                 // (Dict, error) — document catalog
+doc.ResolveRef(ref Reference) // (*Object, error) — follow indirect reference
+doc.Resolve(obj *Object)      // (*Object, error) — resolve if ref, else no-op
 ```
 
-Returns the PDF version string from the file header (e.g. `"1.7"`).
+`PageInfo` fields: `Width` and `Height` in points (1 pt = 1/72 inch), `Rotation` in degrees (0, 90, 180, 270).
 
-```go
-fmt.Println(doc.Version()) // "1.7"
-```
-
-### `doc.Pages`
-
-```go
-func (doc *Document) Pages() ([]Dict, error)
-```
-
-Returns all page dictionaries in document order by traversing the page tree.
-
-```go
-pages, err := doc.Pages()
-fmt.Printf("%d pages\n", len(pages))
-```
-
-### `doc.GetPageInfo`
-
-```go
-func (doc *Document) GetPageInfo(page Dict) PageInfo
-```
-
-Returns width (pt), height (pt), and rotation (degrees) for a page.
-
-```go
-pages, _ := doc.Pages()
-for i, page := range pages {
-    info := doc.GetPageInfo(page)
-    fmt.Printf("Page %d: %.0f x %.0f pt, %d°\n",
-        i+1, info.Width, info.Height, info.Rotation)
-}
-```
-
-`PageInfo` fields:
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `Width` | `float64` | Width in points (1 pt = 1/72 inch) |
-| `Height` | `float64` | Height in points |
-| `Rotation` | `int` | Clockwise rotation in degrees (0, 90, 180, 270) |
-
-### `doc.ContentStreams`
-
-```go
-func (doc *Document) ContentStreams(page Dict) ([]byte, error)
-```
-
-Returns the combined, fully-decompressed content stream bytes for a page.
-Useful for custom content-stream parsing beyond text extraction.
-
-```go
-pages, _ := doc.Pages()
-raw, err := doc.ContentStreams(pages[0])
-fmt.Printf("content stream: %d bytes\n", len(raw))
-```
-
-### `doc.PageFonts`
-
-```go
-func (doc *Document) PageFonts(page Dict) (map[string]*Object, error)
-```
-
-Returns the font resource objects for a page keyed by their resource name (e.g. `"F1"`, `"F2"`).
-
-```go
-pages, _ := doc.Pages()
-fonts, err := doc.PageFonts(pages[0])
-for name, obj := range fonts {
-    subtype, _ := obj.Dict.GetName("Subtype")
-    fmt.Printf("  %s: /%s\n", name, subtype)
-}
-```
-
-### `doc.Catalog`
-
-```go
-func (doc *Document) Catalog() (Dict, error)
-```
-
-Returns the document catalog dictionary (the root of the PDF object tree).
-
-```go
-cat, err := doc.Catalog()
-if pdfType, ok := cat.GetName("Type"); ok {
-    fmt.Println(pdfType) // "Catalog"
-}
-```
-
-### `doc.ResolveRef` / `doc.Resolve`
-
-```go
-func (doc *Document) ResolveRef(ref Reference) (*Object, error)
-func (doc *Document) Resolve(obj *Object) (*Object, error)
-```
-
-Follow indirect references to their target objects.
-`Resolve` is a convenience wrapper: if the object is not a reference it is returned as-is.
-
-```go
-// Resolve an indirect reference directly
-obj, err := doc.ResolveRef(pdf.Reference{Number: 5, Gen: 0})
-
-// Or resolve whatever type an Object holds
-obj, err := doc.Resolve(someObj) // no-op if someObj.Type != ObjRef
-```
-
----
-
-## Text extraction
-
-### `pdf.NewExtractor`
-
-```go
-func NewExtractor(doc *Document) *Extractor
-```
-
-Creates a text extractor bound to a document.
-
-### `ext.ExtractAll`
-
-```go
-func (e *Extractor) ExtractAll() ([]string, error)
-```
-
-Extracts plain text from every page and returns one string per page.
+### Text extraction
 
 ```go
 ext := pdf.NewExtractor(doc)
+
+// All pages → []string (one per page)
 texts, err := ext.ExtractAll()
-for i, t := range texts {
-    fmt.Printf("--- page %d ---\n%s\n", i+1, t)
-}
-```
 
-### `ext.ExtractPage`
+// Single page, 0-indexed
+text, err := ext.ExtractPage(0)
 
-```go
-func (e *Extractor) ExtractPage(pageIndex int) (string, error)
-```
-
-Extracts plain text from a single page (0-indexed). Returns `""` without error if the index is out of range.
-
-```go
-text, err := ext.ExtractPage(0) // first page
-```
-
-### `ext.ExtractPageDict`
-
-```go
-func (e *Extractor) ExtractPageDict(page Dict) (string, error)
-```
-
-Extracts plain text from a page dictionary directly. Useful when you already have the `Dict` from `doc.Pages()`.
-
-```go
-pages, _ := doc.Pages()
+// From a page Dict directly
 text, err := ext.ExtractPageDict(pages[2])
 ```
 
-#### How text extraction works
+**How it works:**
+1. Font resources are loaded and encoding tables built per page.
+2. Content streams are decompressed and parsed.
+3. Text operators (`Tj`, `TJ`, `'`, `"`) emit positioned spans.
+4. Spans are grouped into lines by Y coordinate (±50 % of average font size).
+5. Lines sorted top-to-bottom; spans left-to-right with space insertion when gap > 30 % of font size.
 
-1. Font resources for the page are loaded and encoding tables are built.
-2. Content streams are decompressed and fed to the content-stream parser.
-3. Text operators (`Tj`, `TJ`, `'`, `"`) emit positioned `textSpan` values.
-4. Spans are grouped into lines by Y coordinate (tolerance = 50 % of average font size).
-5. Lines are sorted top-to-bottom (PDF Y=0 is at the bottom).
-6. Spans within a line are sorted left-to-right; a space is inserted when the horizontal gap exceeds 30 % of the average font size.
-
----
-
-## Decompression
-
-### `pdf.DecompressStream`
+### Decompression — `pdf.DecompressStream`
 
 ```go
-func DecompressStream(dict Dict, data []byte) ([]byte, error)
+raw, err := pdf.DecompressStream(streamObj.Dict, streamObj.Stream)
 ```
 
-Decompresses a PDF stream given its dictionary and raw bytes. Handles filter chains (multiple filters applied in sequence).
+| Filter | Aliases | Notes |
+|--------|---------|-------|
+| `FlateDecode` | `Fl` | zlib + PNG predictors (Sub, Up, Average, Paeth) + TIFF predictor |
+| `ASCII85Decode` | `A85` | |
+| `ASCIIHexDecode` | `AHx` | |
+| `LZWDecode` | `LZW` | MSB-first, litWidth=8 |
+| `RunLengthDecode` | `RL` | PackBits |
+| `DCTDecode`, `CCITTFaxDecode`, `JBIG2Decode`, `JPXDecode`, `Crypt` | | Passed through as-is |
 
-```go
-compressed := someStreamObject.Stream
-raw, err := pdf.DecompressStream(someStreamObject.Dict, compressed)
-```
+256 MB limit on decompressed output (DoS guard).
 
-Supported filters:
-
-| Filter name | Aliases | Notes |
-|-------------|---------|-------|
-| `FlateDecode` | `Fl` | zlib/deflate with optional PNG predictors (Sub, Up, Average, Paeth) and TIFF predictor |
-| `ASCII85Decode` | `A85` | Base-85 encoding |
-| `ASCIIHexDecode` | `AHx` | Pairs of hexadecimal digits |
-| `LZWDecode` | `LZW` | MSB-first LZW (TIFF order, litWidth=8) |
-| `RunLengthDecode` | `RL` | PackBits run-length encoding |
-| `DCTDecode` | `DCT` | JPEG — passed through as-is |
-| `CCITTFaxDecode` | `CCF` | CCITT fax — passed through as-is |
-| `JBIG2Decode` | — | JBIG2 — passed through as-is |
-| `JPXDecode` | — | JPEG 2000 — passed through as-is |
-| `Crypt` | — | Identity — passed through as-is |
-
-A 256 MB limit is enforced on decompressed output to prevent DoS via unbounded memory allocation.
-
----
-
-## Font encoding
-
-### `pdf.NewFontEncoding`
-
-```go
-func NewFontEncoding(fontObj *Object) *FontEncoding
-```
-
-Builds a `FontEncoding` from a PDF font object. The decoding priority is:
-
-1. **ToUnicode CMap** (`beginbfchar` / `beginbfrange`) — highest priority
-2. **Encoding dictionary** (`/Encoding` dict with `/BaseEncoding` + `/Differences`)
-3. **Named encoding** (`/Encoding` name)
-4. **Default** — WinAnsiEncoding for most fonts, StandardEncoding for Type1/MMType1
-
-Supported named encodings:
-
-| Name | Description |
-|------|-------------|
-| `WinAnsiEncoding` | Windows-1252 |
-| `MacRomanEncoding` | Mac OS Roman |
-| `StandardEncoding` | PostScript Standard Encoding |
-| `PDFDocEncoding` | PDF document encoding |
-
-`/Differences` arrays are resolved via the **Adobe Glyph List** (covers ~300 common glyph names: letters, digits, punctuation, accented characters, typographic symbols).
-
-CID fonts (Type0/composite) are handled via multi-byte CMap lookups.
-
-### `enc.Decode`
-
-```go
-func (e *FontEncoding) Decode(data []byte) string
-```
-
-Converts a raw PDF text string (byte slice from a `Tj`/`TJ` operand) to a UTF-8 string using the built encoding table.
+### Font encoding — `pdf.NewFontEncoding`
 
 ```go
 enc := pdf.NewFontEncoding(fontObj)
-text := enc.Decode([]byte{0x48, 0x65, 0x6C, 0x6C, 0x6F})
-fmt.Println(text) // "Hello"
+text := enc.Decode(rawBytes)
 ```
 
----
+Decoding priority: **ToUnicode CMap** > **Encoding dict** (`/BaseEncoding` + `/Differences`) > **Named encoding** > Default (WinAnsi or Standard).
 
-## Low-level object model
+Named encodings: `WinAnsiEncoding`, `MacRomanEncoding`, `StandardEncoding`, `PDFDocEncoding`. `/Differences` resolved via Adobe Glyph List (~300 glyph names). CID/Type0 fonts use multi-byte CMap lookup.
 
-### Types
+### Low-level object model
 
 | Type | Description |
 |------|-------------|
-| `Object` | Any PDF object (tagged union) |
-| `ObjectType` | Enum: `ObjNull`, `ObjBool`, `ObjInt`, `ObjFloat`, `ObjString`, `ObjName`, `ObjArray`, `ObjDict`, `ObjStream`, `ObjRef` |
-| `Reference` | Indirect object reference `{Number int, Gen int}` |
-| `Dict` | `map[string]*Object` with helper methods |
+| `Object` | Tagged union for any PDF object |
+| `ObjectType` | `ObjNull`, `ObjBool`, `ObjInt`, `ObjFloat`, `ObjString`, `ObjName`, `ObjArray`, `ObjDict`, `ObjStream`, `ObjRef` |
+| `Reference` | `{Number int, Gen int}` |
+| `Dict` | `map[string]*Object` with `GetInt`, `GetName`, `GetArray`, `GetDict` helpers |
 | `XRefEntry` | Cross-reference table entry |
 | `PageInfo` | `{Width, Height float64; Rotation int}` |
 
-`Object` fields:
-
-| Field | Type | Used for |
-|-------|------|----------|
-| `Type` | `ObjectType` | Discriminant |
-| `Bool` | `bool` | `ObjBool` |
-| `Int` | `int64` | `ObjInt` |
-| `Float` | `float64` | `ObjFloat` |
-| `Str` | `[]byte` | `ObjString` |
-| `Name` | `string` | `ObjName` |
-| `Array` | `[]*Object` | `ObjArray` |
-| `Dict` | `Dict` | `ObjDict`, `ObjStream` |
-| `Stream` | `[]byte` | `ObjStream` (raw, not decompressed) |
-| `Ref` | `Reference` | `ObjRef` |
-
-### Dict helper methods
-
-```go
-val, ok := dict.GetInt("Length")    // int64
-val, ok := dict.GetName("Type")     // string
-val, ok := dict.GetArray("Filter")  // []*Object (single obj treated as 1-elem array)
-val, ok := dict.GetDict("Resources") // Dict
-```
+`Object` fields: `Type`, `Bool`, `Int`, `Float`, `Str` (`[]byte`), `Name`, `Array` (`[]*Object`), `Dict`, `Stream` (`[]byte`, raw), `Ref`.
 
 ### Parser
 
 ```go
-func NewParser(data []byte, pos int) *Parser
-func (p *Parser) ParseObject() (*Object, error)
-func (p *Parser) Pos() int
-func (p *Parser) SetPos(pos int)
-```
-
-A recursive-descent parser for the PDF object syntax. Used internally to parse file structures, but exposed for advanced use cases (e.g. custom content-stream operators).
-
-```go
 p := pdf.NewParser(data, 0)
-obj, err := p.ParseObject() // parses one PDF object at position 0
+obj, err := p.ParseObject() // parses one PDF object
+p.Pos()                     // current byte position
+p.SetPos(n)                 // seek to position
 ```
 
-Nesting is capped at depth 100 to prevent stack overflow on malformed files.
+Recursive-descent parser for the full PDF object syntax. Nesting capped at depth 100.
+
+#### File layout
+
+```
+pdf/
+├── parser.go        # Recursive-descent PDF object parser
+├── document.go      # Document, XRef loading, page tree, object resolution
+├── decompress.go    # Stream decompression (FlateDecode, ASCII85, LZW, …)
+├── encoding.go      # Font encoding tables + ToUnicode CMap parser
+└── extractor.go     # Content-stream text extraction + line assembly
+```
 
 ---
 
-## Features summary
-
-- **PDF parsing** — full object model: null, bool, int, float, literal strings (with octal/escape sequences), hex strings, names (with `#XX` escapes), arrays, dicts, streams, indirect references
-- **XRef** — traditional cross-reference tables and cross-reference streams (PDF 1.5+), compressed object streams, linearized/hybrid PDFs via chained `Prev` pointers
-- **Decompression** — FlateDecode (zlib + PNG predictors Sub/Up/Average/Paeth + TIFF predictor), ASCII85, ASCIIHex, LZW, RunLength; 256 MB DoS guard; image filters passed through
-- **Font encoding** — WinAnsiEncoding, MacRomanEncoding, StandardEncoding, PDFDocEncoding; ToUnicode CMap (`beginbfchar` / `beginbfrange`); `/Differences` with Adobe Glyph List; CID/composite font (Type0) multi-byte lookup
-- **Text extraction** — `Tj`, `TJ`, `'`, `"` content-stream operators; text state tracking (Tf, Tc, Tw, TL, Td, TD, Tm, T\*); positional line grouping with smart space insertion; whitespace normalisation
-
 ## Requirements
 
-Go 1.21+. No external dependencies.
+| Package | Go | External deps |
+|---------|----|---------------|
+| `htmlpdf` (root) | 1.24+ | chromedp, cdproto, go-rod/rod |
+| `pdf` (subpackage) | 1.21+ | none (stdlib only) |
 
 ## License
 
