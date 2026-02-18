@@ -4,7 +4,7 @@ description: Use when building Go applications requiring concurrent programming,
 license: MIT
 metadata:
   author: https://github.com/Jeffallan
-  version: "1.2.0"
+  version: "1.3.0"
   domain: language
   triggers: Go, Golang, goroutines, channels, gRPC, microservices Go, Go generics, concurrent programming, Go interfaces, PDF, PDF extraction, PDF parsing, HTML to PDF, CSS to PDF, headless Chrome, chromedp, CDP
   role: specialist
@@ -23,18 +23,17 @@ You are a senior Go engineer with 8+ years of systems programming experience. Yo
 
 ## Project Context
 
-This module (`github.com/porticus-lab/go-html-pdf`) exposes **two complementary PDF libraries** in the same Go module:
+This module (`github.com/porticus-lab/go-html-pdf`) is a **single Go library** — `package htmlpdf` — that bundles two complementary PDF capabilities under one import:
+
+```go
+import htmlpdf "github.com/porticus-lab/go-html-pdf"
+```
 
 ---
 
-### Package 1: `htmlpdf` — HTML + CSS → PDF
+### Capability 1: HTML + CSS → PDF
 
-**Import**: `github.com/porticus-lab/go-html-pdf`
-**Location**: root (`*.go` files at module root)
-**Go**: 1.24+
-**Deps**: `chromedp`, `cdproto`, `go-rod/rod` (all MIT)
-
-Converts modern HTML5 + CSS3 to PDF via the Chrome DevTools Protocol (headless Chrome). All CSS features supported by the browser work out of the box.
+Converts modern HTML5 + CSS3 to PDF via the Chrome DevTools Protocol (headless Chrome).
 
 #### File map
 
@@ -47,10 +46,6 @@ Converts modern HTML5 + CSS3 to PDF via the Chrome DevTools Protocol (headless C
 | `result.go` | `Result`: `Bytes`, `Base64`, `Reader`, `WriteTo`, `WriteToFile`, `Len` |
 | `browser.go` | Chromium auto-download via `go-rod/rod/lib/launcher` |
 | `converter.go` | `Converter` struct + package-level convenience functions |
-| `page_test.go` | Unit tests — no Chrome required |
-| `result_test.go` | Unit tests — no Chrome required |
-| `converter_test.go` | Integration tests — skipped if Chrome not in PATH |
-| `example_test.go` | Testable examples for `go doc` |
 
 #### Key public API
 
@@ -92,14 +87,9 @@ res.Len()             // int
 
 ---
 
-### Package 2: `pdf` — PDF → Text
+### Capability 2: PDF → Text
 
-**Import**: `github.com/porticus-lab/go-html-pdf/pdf`
-**Location**: `pdf/`
-**Go**: 1.21+
-**Deps**: none (stdlib only)
-
-Pure-Go PDF text extraction. Go port of [zpdf](https://github.com/Lulzx/zpdf).
+Pure-Go PDF text extraction. Go port of [zpdf](https://github.com/Lulzx/zpdf) — stdlib only.
 
 #### File map
 
@@ -110,18 +100,17 @@ Pure-Go PDF text extraction. Go port of [zpdf](https://github.com/Lulzx/zpdf).
 | `decompress.go` | Stream decompression: FlateDecode, ASCII85, LZW, RunLength |
 | `encoding.go` | Font encoding: WinAnsi, MacRoman, ToUnicode CMap, Adobe Glyph List |
 | `extractor.go` | Content-stream text extraction, positional line assembly |
-| `extractor_test.go` | Table-driven tests for all components |
 
 #### Key public API
 
 ```go
 // Open / load
-doc, err := pdf.Open("file.pdf")
-doc, err := pdf.Load(data []byte)
+doc, err := htmlpdf.Open("file.pdf")
+doc, err  = htmlpdf.Load(data []byte)
 
 // Document
 doc.Version()                        // e.g. "1.7"
-doc.Pages()                          // []Dict
+doc.Pages()                          // ([]Dict, error)
 doc.GetPageInfo(page)                // PageInfo{Width, Height, Rotation}
 doc.ContentStreams(page)             // decompressed content stream bytes
 doc.PageFonts(page)                  // map[name]*Object
@@ -130,17 +119,17 @@ doc.ResolveRef(ref Reference)        // *Object
 doc.Resolve(obj *Object)             // *Object (no-op if not a ref)
 
 // Text extraction
-ext := pdf.NewExtractor(doc)
+ext := htmlpdf.NewExtractor(doc)
 ext.ExtractPage(index int)           // single page, 0-indexed
 ext.ExtractAll()                     // all pages → []string
 ext.ExtractPageDict(page Dict)       // from Dict directly
 
 // Low-level
-pdf.DecompressStream(dict, data)     // apply filter chain
-pdf.NewFontEncoding(fontObj)         // build encoding table
+htmlpdf.DecompressStream(dict, data) // apply filter chain
+htmlpdf.NewFontEncoding(fontObj)     // build encoding table
 enc.Decode(data []byte)              // glyph codes → UTF-8
 
-pdf.NewParser(data, pos)             // recursive-descent parser
+htmlpdf.NewParser(data, pos)         // recursive-descent parser
 parser.ParseObject()                 // *Object
 ```
 
@@ -153,7 +142,7 @@ parser.ParseObject()                 // *Object
 - Optimizing Go code for performance and memory efficiency
 - Designing interfaces and using Go generics
 - Setting up testing with table-driven tests and benchmarks
-- **Extending or consuming either PDF library in this module**
+- **Extending or consuming either PDF capability in this module**
 
 ## Core Workflow
 
@@ -184,8 +173,7 @@ parser.ParseObject()                 // *Object
 - Use `X | Y` union constraints for generics (Go 1.18+)
 - Propagate errors with fmt.Errorf("%w", err)
 - Run race detector on tests (-race flag)
-- Keep `pdf/` subpackage free of external dependencies (stdlib only)
-- Prefix `htmlpdf` errors with `htmlpdf:` for clarity
+- Keep the PDF extraction files (parser/document/decompress/encoding/extractor) free of external dependencies
 
 ### MUST NOT DO
 - Ignore errors (avoid _ assignment without justification)
@@ -195,7 +183,7 @@ parser.ParseObject()                 // *Object
 - Use reflection without performance justification
 - Mix sync and async patterns carelessly
 - Hardcode configuration (use functional options or env vars)
-- Add a CLI layer — both packages are libraries only
+- Add a CLI layer — this is a library only
 - Add non-free/paid dependencies
 
 ## Output Templates
